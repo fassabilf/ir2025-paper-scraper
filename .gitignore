@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+
+# Output files (jangan commit PDF & metadata besar)
+papers_2025/
+papers_metadata.json
+papers_metadata.csv
+download_report.json
+
+# Old script
+scrape_ir_papers.py
