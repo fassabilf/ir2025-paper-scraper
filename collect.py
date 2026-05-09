@@ -354,9 +354,13 @@ def main():
         json.dump(all_papers, f, ensure_ascii=False, indent=2)
 
     # Simpan CSV
-    df = pd.DataFrame(all_papers)
-    df["authors"] = df["authors"].apply(lambda a: "; ".join(a) if isinstance(a, list) else a)
-    df.to_csv(out_csv, index=False, encoding="utf-8")
+    if all_papers:
+        df = pd.DataFrame(all_papers)
+        df["authors"] = df["authors"].apply(lambda a: "; ".join(a) if isinstance(a, list) else a)
+        df.to_csv(out_csv, index=False, encoding="utf-8")
+    else:
+        pd.DataFrame(columns=["venue","title","authors","year","pdf_url","source","doi","abstract"]
+                     ).to_csv(out_csv, index=False, encoding="utf-8")
 
     # Ringkasan
     print(f"\n{'='*60}")

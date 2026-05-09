@@ -9,5 +9,8 @@ papers_metadata.json
 papers_metadata.csv
 download_report.json
 
+# Keep examples/
+!examples/
+
 # Old script
 scrape_ir_papers.py
