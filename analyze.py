@@ -1,18 +1,15 @@
 """
 Stage 3 — Analisis kelayakan paper IR 2025 menggunakan DeepSeek API.
 
-Input  : all_papers.jsonl dari HuggingFace repo (stream via HTTP)
+Input  : all_papers.jsonl dari HuggingFace repo  (default)
+       : ACL/*.txt files dari HuggingFace repo   (--source acl-txt)
 Output : analysis_partial_P{N}.jsonl  (checkpoint per partisi)
          analysis_results.csv / .json (hasil merge semua partisi)
 
 Usage:
-  # Test 5 paper dulu
   python3 analyze.py --test 5
-
-  # Kaggle: partisi 0 dari 3 notebook paralel
-  python3 analyze.py --partition 0 --num-partitions 3
-
-  # Merge semua partisi → CSV final
+  python3 analyze.py --source acl-txt --test 5
+  python3 analyze.py --source acl-txt
   python3 analyze.py --merge
 """
 
@@ -40,7 +37,9 @@ PARTIAL_PREFIX      = "analysis_partial"
 FINAL_CSV           = Path("analysis_results.csv")
 FINAL_JSON          = Path("analysis_results.json")
 
-HF_JSONL_URL = "https://huggingface.co/datasets/{dataset}/resolve/main/all_papers.jsonl"
+HF_JSONL_URL    = "https://huggingface.co/datasets/{dataset}/resolve/main/all_papers.jsonl"
+HF_RAW_BASE_URL = "https://huggingface.co/datasets/{dataset}/resolve/main/"
+HF_API_FILES    = "https://huggingface.co/api/datasets/{dataset}/tree/main/ACL"
 
 # ─── PROMPT ──────────────────────────────────────────────────────────────────
 
@@ -159,6 +158,53 @@ def load_papers(hf_dataset: str) -> list[dict]:
             pass
 
     print(f"  Loaded {len(papers)} papers ({total_bytes/1024/1024:.1f} MB)", flush=True)
+    return papers
+
+
+def load_acl_txt(hf_dataset: str, limit: int | None = None) -> list[dict]:
+    """
+    Download ACL/*.txt dari HF repo → list of paper dicts.
+    limit: ambil N file pertama saja (untuk test mode).
+    """
+    api_url = HF_API_FILES.format(dataset=hf_dataset)
+    print(f"Fetching ACL file list dari {hf_dataset} ...", flush=True)
+    resp = requests.get(api_url, timeout=30)
+    resp.raise_for_status()
+    file_list = resp.json()
+
+    txt_paths = [f["path"] for f in file_list if f.get("path", "").endswith(".txt")]
+    if limit:
+        txt_paths = txt_paths[:limit]
+    print(f"  Akan download {len(txt_paths)} file ACL .txt", flush=True)
+
+    base_url = HF_RAW_BASE_URL.format(dataset=hf_dataset)
+    papers   = []
+
+    for path in tqdm(txt_paths, desc="Downloading ACL txts", unit="file", ncols=80):
+        url  = base_url + path
+        resp = requests.get(url, timeout=60)
+        if resp.status_code != 200:
+            continue
+        text     = resp.text[:MAX_TEXT_CHARS]
+        filename = path.split("/")[-1]
+        title = ""
+        for line in text.splitlines():
+            line = line.strip()
+            if len(line) > 20 and not line.startswith("Proceedings") and not line.startswith("©"):
+                title = line[:120]
+                break
+        papers.append({
+            "_group_id": filename,
+            "text":      text,
+            "venue":     "ACL",
+            "title":     title,
+            "authors":   [],
+            "year":      "2025",
+            "doi":       "",
+            "abstract":  "",
+        })
+
+    print(f"  Loaded {len(papers)} ACL papers", flush=True)
     return papers
 
 
@@ -352,6 +398,8 @@ def main():
     parser = argparse.ArgumentParser(description="Stage 3: Analisis paper IR dengan DeepSeek")
 
     parser.add_argument("--hf-dataset",       default="fassabilf/ir2025-papers-text")
+    parser.add_argument("--source",           default="jsonl", choices=["jsonl", "acl-txt"],
+                        help="jsonl = all_papers.jsonl (default) | acl-txt = ACL/*.txt files")
     parser.add_argument("--partition",         type=int, default=0)
     parser.add_argument("--num-partitions",    type=int, default=1)
     parser.add_argument("--api-key",           default="sk-0989c4f9d50f46bf93ac214bed520dbb")
@@ -379,6 +427,7 @@ def main():
     print(f"Stage 3: Analisis Paper IR — DeepSeek")
     print(f"{'='*60}")
     print(f"Dataset     : {args.hf_dataset}")
+    print(f"Source      : {args.source}")
     print(f"Partisi     : {args.partition} / {args.num_partitions}")
     print(f"Concurrency : {args.concurrency}")
     print(f"Checkpoint  : setiap {args.checkpoint_every} paper")
@@ -388,7 +437,10 @@ def main():
     print()
 
     # Load
-    papers   = load_papers(args.hf_dataset)
+    if args.source == "acl-txt":
+        papers = load_acl_txt(args.hf_dataset, limit=args.test)
+    else:
+        papers = load_papers(args.hf_dataset)
     done_ids = load_checkpoint(partial_path)
     papers   = [p for p in papers if p["_group_id"] not in done_ids]
 
